@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+// Aplica la marca Intelidesk a un checkout de RustDesk (con submódulos).
+//
+//   node apply-branding.mjs <ruta-rustdesk>                  parchea el código (se ejecuta en CI tras el checkout)
+//   node apply-branding.mjs <ruta-rustdesk> --setup-workflow  prepara .github/workflows/flutter-build.yml del fork
+//                                                              para que ejecute este script y compile solo escritorio
+//
+// La configuración se lee de brand.json (junto a este script) y puede sobrescribirse con variables
+// de entorno: INTELIDESK_RENDEZVOUS_SERVER, INTELIDESK_PUBLIC_KEY, INTELIDESK_API_SERVER.
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+
+const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const [, , target, flag] = process.argv;
+if (!target) {
+  console.error("Uso: node apply-branding.mjs <ruta-rustdesk> [--setup-workflow]");
+  process.exit(1);
+}
+const root = resolve(target);
+const brand = JSON.parse(readFileSync(resolve(here, "brand.json"), "utf8"));
+brand.rendezvousServer = process.env.INTELIDESK_RENDEZVOUS_SERVER || brand.rendezvousServer;
+brand.publicKey = process.env.INTELIDESK_PUBLIC_KEY || brand.publicKey;
+brand.apiServer = process.env.INTELIDESK_API_SERVER || brand.apiServer;
+
+let failures = 0;
+
+// Reemplaza en un archivo y falla si el patrón no aparece (para detectar cambios en RustDesk).
+function patch(rel, replacements, { optional = false } = {}) {
+  const file = resolve(root, rel);
+  if (!existsSync(file)) {
+    if (!optional) {
+      console.error(`✗ No existe ${rel}`);
+      failures++;
+    }
+    return;
+  }
+  let src = readFileSync(file, "utf8");
+  for (const [from, to] of replacements) {
+    const found = typeof from === "string" ? src.includes(from) : from.test(src);
+    if (!found) {
+      console.error(`✗ ${rel}: no se encontró ${from}`);
+      failures++;
+      continue;
+    }
+    src = typeof from === "string" ? src.split(from).join(to) : src.replace(from, to);
+  }
+  writeFileSync(file, src);
+  console.log(`✓ ${rel}`);
+}
+
+const rsString = (s) => JSON.stringify(s); // literal de cadena válido en Rust
+
+function brandSources() {
+  if (brand.rendezvousServer.includes("CAMBIAR") || brand.publicKey.includes("CAMBIAR")) {
+    console.error("✗ Configura rendezvousServer, publicKey y apiServer en brand.json o en variables de entorno");
+    process.exit(1);
+  }
+
+  // Nombre de la app, organización, servidor y clave por defecto
+  patch("libs/hbb_common/src/config.rs", [
+    [/pub static ref ORG: RwLock<String> = RwLock::new\("[^"]*"\.to_owned\(\)\);/, `pub static ref ORG: RwLock<String> = RwLock::new(${rsString(brand.org)}.to_owned());`],
+    [/pub static ref APP_NAME: RwLock<String> = RwLock::new\("[^"]*"\.to_owned\(\)\);/, `pub static ref APP_NAME: RwLock<String> = RwLock::new(${rsString(brand.appName)}.to_owned());`],
+    [/pub const RENDEZVOUS_SERVERS: &\[&str\] = &\[[^\]]*\];/, `pub const RENDEZVOUS_SERVERS: &[&str] = &[${rsString(brand.rendezvousServer)}];`],
+    [/pub const RS_PUB_KEY: &str = "[^"]*";/, `pub const RS_PUB_KEY: &str = ${rsString(brand.publicKey)};`],
+  ]);
+
+  // API por defecto: el panel Intelidesk en lugar de admin.rustdesk.com
+  patch("src/common.rs", [[/^(\s*)"https:\/\/admin\.rustdesk\.com"\.to_owned\(\)(\r?)$/m, `$1${rsString(brand.apiServer)}.to_owned()$2`]]);
+
+  // Metadatos del ejecutable de Windows y del paquete
+  patch("Cargo.toml", [
+    [/LegalCopyright = "[^"]*"/, `LegalCopyright = ${rsString(brand.copyright)}`],
+    [/ProductName = "RustDesk"/, `ProductName = ${rsString(brand.appName)}`],
+    [/FileDescription = "[^"]*"/, `FileDescription = ${rsString(brand.description)}`],
+    [/(\[package\.metadata\.bundle\]\r?\nname = )"RustDesk"/, `$1${rsString(brand.appName)}`],
+  ]);
+  patch("flutter/windows/runner/Runner.rc", [
+    [/VALUE "CompanyName", "[^"]*"/, `VALUE "CompanyName", ${rsString(brand.company)}`],
+    [/VALUE "FileDescription", "[^"]*"/, `VALUE "FileDescription", ${rsString(brand.description)}`],
+    [/VALUE "LegalCopyright", "[^"]*"/, `VALUE "LegalCopyright", ${rsString(brand.copyright)}`],
+    [/VALUE "ProductName", "[^"]*"/, `VALUE "ProductName", ${rsString(brand.appName)}`],
+  ]);
+  patch("flutter/macos/Runner/Configs/AppInfo.xcconfig", [
+    [/PRODUCT_NAME = .*/, `PRODUCT_NAME = ${brand.appName}`],
+    [/PRODUCT_BUNDLE_IDENTIFIER = .*/, `PRODUCT_BUNDLE_IDENTIFIER = ${brand.bundleId}`],
+    [/PRODUCT_COPYRIGHT = .*/, `PRODUCT_COPYRIGHT = ${brand.copyright}`],
+  ]);
+
+  // Íconos (generados con client/scripts: pnpm icons)
+  const gen = resolve(here, "assets/generated");
+  const icons = {
+    "icon.png": ["res/icon.png"],
+    "128x128.png": ["res/128x128.png"],
+    "128x128@2x.png": ["res/128x128@2x.png"],
+    "64x64.png": ["res/64x64.png"],
+    "32x32.png": ["res/32x32.png"],
+    "mac-icon.png": ["res/mac-icon.png"],
+    "icon.ico": ["res/icon.ico", "flutter/windows/runner/resources/app_icon.ico"],
+  };
+  for (const [src, dests] of Object.entries(icons)) {
+    if (!existsSync(resolve(gen, src))) {
+      console.error(`✗ Falta ${src}; ejecuta "pnpm icons" en client/scripts`);
+      failures++;
+      continue;
+    }
+    for (const d of dests) copyFileSync(resolve(gen, src), resolve(root, d));
+  }
+  copyFileSync(resolve(here, "assets/icon.svg"), resolve(root, "flutter/assets/icon.svg"));
+  console.log("✓ íconos");
+
+  // macOS: .icns a partir de mac-icon.png (solo en runners macOS, que tienen iconutil)
+  if (process.platform === "darwin") {
+    const set = resolve(root, "intelidesk.iconset");
+    execFileSync("mkdir", ["-p", set]);
+    for (const s of [16, 32, 128, 256, 512]) {
+      execFileSync("sips", ["-z", String(s), String(s), resolve(gen, "mac-icon.png"), "--out", `${set}/icon_${s}x${s}.png`]);
+      execFileSync("sips", ["-z", String(s * 2), String(s * 2), resolve(gen, "mac-icon.png"), "--out", `${set}/icon_${s}x${s}@2x.png`]);
+    }
+    execFileSync("iconutil", ["-c", "icns", set, "-o", resolve(root, "flutter/macos/Runner/AppIcon.icns")]);
+    console.log("✓ AppIcon.icns");
+  }
+}
+
+// Jobs de flutter-build.yml que no se necesitan para Windows/macOS
+const SKIP_JOBS = [
+  "build-for-windows-sciter",
+  "build-rustdesk-ios",
+  "publish-signed-update-metadata",
+  "build-rustdesk-android",
+  "build-rustdesk-android-universal",
+  "build-rustdesk-linux-drm",
+  "build-rustdesk-linux-sciter",
+  "build-appimage",
+  "build-flatpak",
+  "build-rustdesk-web",
+];
+
+function setupWorkflow() {
+  const rel = ".github/workflows/flutter-build.yml";
+  const file = resolve(root, rel);
+  const lines = readFileSync(file, "utf8").split("\n");
+  const jobStart = (l) => /^  ([A-Za-z0-9_-]+):\s*$/.exec(l)?.[1];
+
+  // Jobs omitidos que ya tienen condición propia ("    if:" a nivel de job)
+  const hasIf = new Set();
+  let job = "";
+  for (const l of lines) {
+    job = jobStart(l) ?? job;
+    if (/^    if:/.test(l)) hasIf.add(job);
+  }
+
+  const out = [];
+  let added = 0;
+  job = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const started = jobStart(line);
+    if (started) job = started;
+    const skip = SKIP_JOBS.includes(job);
+    if (skip && /^    if:/.test(line)) {
+      out.push("    if: false");
+      continue;
+    }
+    out.push(line);
+    if (started && skip && !hasIf.has(job)) out.push("    if: false");
+    // Tras cada checkout con submódulos, aplicar la marca
+    if (/^          submodules: recursive\s*$/.test(line) && !lines.slice(i, i + 4).some((l) => l.includes("Apply Intelidesk branding"))) {
+      out.push(
+        "",
+        "      - name: Apply Intelidesk branding",
+        "        shell: bash",
+        "        env:",
+        "          INTELIDESK_RENDEZVOUS_SERVER: ${{ vars.INTELIDESK_RENDEZVOUS_SERVER }}",
+        "          INTELIDESK_PUBLIC_KEY: ${{ vars.INTELIDESK_PUBLIC_KEY }}",
+        "          INTELIDESK_API_SERVER: ${{ vars.INTELIDESK_API_SERVER }}",
+        "        run: node intelidesk/apply-branding.mjs .",
+      );
+      added++;
+    }
+  }
+  writeFileSync(file, out.join("\n"));
+  console.log(`✓ ${rel}: paso de marca añadido en ${added} jobs, ${SKIP_JOBS.length} jobs desactivados`);
+}
+
+if (flag === "--setup-workflow") setupWorkflow();
+else brandSources();
+
+if (failures) {
+  console.error(`\n${failures} cambio(s) no se pudieron aplicar: revisa si cambió el código de RustDesk.`);
+  process.exit(1);
+}

@@ -1,0 +1,22 @@
+name: Intelidesk Build
+
+# Compila el cliente Intelidesk (Windows, macOS, Linux) con la marca de intelidesk/brand.json
+# y publica los instaladores en el release indicado. Se lanza a mano: Actions → Intelidesk Build.
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Release donde se suben los instaladores"
+        default: "intelidesk-1.5.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: ${{ inputs.release-tag }}

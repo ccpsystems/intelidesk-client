@@ -1,0 +1,12 @@
+{
+  "appName": "Intelidesk",
+  "org": "com.intelidesk",
+  "bundleId": "com.intelidesk.client",
+  "company": "Intelidesk",
+  "copyright": "Copyright © 2026 Intelidesk. Basado en RustDesk (AGPL-3.0).",
+  "description": "Intelidesk - Soporte remoto",
+  "rendezvousServer": "rd.inteliap.es",
+  "publicKey": "653t9P85sGBLg9udH8fW8UZxEm9BYohjT4k8y5o+3bw=",
+  "apiServer": "https://intelidesk.inteliap.es",
+  "rustdeskTag": "1.5.0"
+}
