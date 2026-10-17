@@ -222,6 +222,29 @@ function setupWorkflow() {
   }
   // Pasos de macOS del workflow que buscan el paquete por su nombre fijo
   if (targets.has("macos")) text = text.replace(/RustDesk\.app/g, `${brand.appName}.app`);
+  // Notarización tolerante: las primeras notarizaciones de una cuenta pueden tardar más de 10 min y
+  // los runners de macOS pierden DNS a ratos. Se envía, se espera hasta 1 h con reintentos y se grapa.
+  if (targets.has("macos")) {
+    const notarize =
+      /^(\s*)rcodesign notary-submit --api-key-path (\$\{\{ github\.workspace \}\}\/rustdesk\.json)\s+--staple (rustdesk-\$\{\{ env\.VERSION \}\}\.dmg)\s*$/m;
+    if (notarize.test(text)) {
+      text = text.replace(notarize, (_m, ind, key, dmg) =>
+        [
+          `SUB=""; for i in 1 2 3; do SUB=$(rcodesign notary-submit --api-key-path ${key} ${dmg} 2>&1 | tee /dev/stderr | sed -n 's/.*created submission ID: *//p' | tail -1); [ -n "$SUB" ] && break; sleep 30; done`,
+          `[ -n "$SUB" ] || { echo "No se pudo enviar a notarizar"; exit 1; }`,
+          `for i in 1 2 3 4 5 6; do rcodesign notary-wait --api-key-path ${key} --max-wait-seconds 3600 "$SUB" && OK=1 && break; echo "reintentando espera de notarización ($i)"; sleep 30; done`,
+          `[ "$OK" = 1 ] || { rcodesign notary-log --api-key-path ${key} "$SUB" || true; exit 1; }`,
+          `rcodesign notary-log --api-key-path ${key} "$SUB" | grep -q '"status": "Accepted"' || { rcodesign notary-log --api-key-path ${key} "$SUB"; exit 1; }`,
+          `for i in 1 2 3; do rcodesign staple ${dmg} && break; sleep 30; done`,
+        ]
+          .map((l) => ind + l)
+          .join("\n"),
+      );
+    } else if (!text.includes("rcodesign notary-wait")) {
+      console.error("✗ No se encontró el paso de notarización de macOS");
+      failures++;
+    }
+  }
   // Android: además del APK universal, un .aab firmado con la llave de subida para Google Play.
   // Se inserta al final del job build-rustdesk-android-universal (justo antes del siguiente job).
   if (targets.has("android") && !text.includes("Build signed Intelidesk AAB")) {

@@ -982,8 +982,12 @@ jobs:
           create-dmg --icon "Intelidesk.app" 200 190 --hide-extension "Intelidesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}.dmg ./flutter/build/macos/Build/Products/Release/Intelidesk.app
           codesign --force --options runtime -s ${{ secrets.MACOS_CODESIGN_IDENTITY }} --deep --strict rustdesk-${{ env.VERSION }}.dmg -vvv
           # notarize the rustdesk-${{ env.VERSION }}.dmg
-          rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json  --staple rustdesk-${{ env.VERSION }}.dmg
-
+          SUB=""; for i in 1 2 3; do SUB=$(rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json rustdesk-${{ env.VERSION }}.dmg 2>&1 | tee /dev/stderr | sed -n 's/.*created submission ID: *//p' | tail -1); [ -n "$SUB" ] && break; sleep 30; done
+          [ -n "$SUB" ] || { echo "No se pudo enviar a notarizar"; exit 1; }
+          for i in 1 2 3 4 5 6; do rcodesign notary-wait --api-key-path ${{ github.workspace }}/rustdesk.json --max-wait-seconds 3600 "$SUB" && OK=1 && break; echo "reintentando espera de notarización ($i)"; sleep 30; done
+          [ "$OK" = 1 ] || { rcodesign notary-log --api-key-path ${{ github.workspace }}/rustdesk.json "$SUB" || true; exit 1; }
+          rcodesign notary-log --api-key-path ${{ github.workspace }}/rustdesk.json "$SUB" | grep -q '"status": "Accepted"' || { rcodesign notary-log --api-key-path ${{ github.workspace }}/rustdesk.json "$SUB"; exit 1; }
+          for i in 1 2 3; do rcodesign staple rustdesk-${{ env.VERSION }}.dmg && break; sleep 30; done
       - name: Rename rustdesk
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
