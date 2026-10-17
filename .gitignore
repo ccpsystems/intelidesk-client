@@ -58,3 +58,7 @@ libsciter.dylib
 flutter/web/
 # libdrmtap is cloned at build time by build.py (not a submodule)
 /third_party/libdrmtap/
+
+# Recursos de marca Intelidesk (excepción a *png / *svg)
+!intelidesk/**/*.png
+!intelidesk/**/*.svg
