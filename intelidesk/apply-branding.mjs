@@ -81,6 +81,12 @@ function brandSources() {
     [/FileDescription = "[^"]*"/, `FileDescription = ${rsString(brand.description)}`],
     [/(\[package\.metadata\.bundle\]\r?\nname = )"RustDesk"/, `$1${rsString(brand.appName)}`],
   ]);
+  // Empaquetador autoextraíble del .exe de Windows (libs/portable): son los datos que muestra Propiedades
+  patch("libs/portable/Cargo.toml", [
+    [/LegalCopyright = "[^"]*"/, `LegalCopyright = ${rsString(brand.copyright)}`],
+    [/ProductName = "RustDesk"/, `ProductName = ${rsString(brand.appName)}`],
+    [/FileDescription = "[^"]*"/, `FileDescription = ${rsString(brand.description)}`],
+  ]);
   patch("flutter/windows/runner/Runner.rc", [
     [/VALUE "CompanyName", "[^"]*"/, `VALUE "CompanyName", ${rsString(brand.company)}`],
     [/VALUE "FileDescription", "[^"]*"/, `VALUE "FileDescription", ${rsString(brand.description)}`],
