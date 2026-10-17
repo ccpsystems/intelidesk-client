@@ -13,8 +13,12 @@ import { execFileSync } from "node:child_process";
 
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const [, , target, flag] = process.argv;
-// --only=windows: compila solo Windows x64 (más barato en repos privados de GitHub)
-const onlyWindows = process.argv.includes("--only=windows");
+// --targets=windows,android,macos,linux elige las plataformas a compilar (por defecto: windows,macos,linux).
+// --only=windows equivale a --targets=windows.
+const targetsArg = process.argv.find((a) => a.startsWith("--targets="))?.slice(10);
+const targets = new Set(
+  (process.argv.includes("--only=windows") ? "windows" : (targetsArg ?? "windows,macos,linux")).split(",").map((t) => t.trim()),
+);
 if (!target) {
   console.error("Uso: node apply-branding.mjs <ruta-rustdesk> [--setup-workflow]");
   process.exit(1);
@@ -89,6 +93,28 @@ function brandSources() {
     [/PRODUCT_COPYRIGHT = .*/, `PRODUCT_COPYRIGHT = ${brand.copyright}`],
   ]);
 
+  // Android: identificador de la app (el namespace de Kotlin no cambia), nombre visible e íconos
+  if (brand.androidAppId) {
+    patch("flutter/android/app/build.gradle", [[/applicationId "com\.carriez\.flutter_hbb"/, `applicationId ${rsString(brand.androidAppId)}`]]);
+  }
+  patch("flutter/android/app/src/main/AndroidManifest.xml", [
+    [/android:label="RustDesk"/, `android:label=${rsString(brand.appName)}`],
+    [/android:label="RustDesk Input"/, `android:label=${rsString(`${brand.appName} Input`)}`],
+  ]);
+  patch("flutter/android/app/src/main/res/values/strings.xml", [[/<string name="app_name">RustDesk<\/string>/, `<string name="app_name">${brand.appName}</string>`]]);
+  const androidGen = resolve(here, "assets/generated/android");
+  if (existsSync(androidGen)) {
+    for (const d of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
+      for (const f of ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png", "ic_stat_logo.png"]) {
+        copyFileSync(resolve(androidGen, `mipmap-${d}`, f), resolve(root, `flutter/android/app/src/main/res/mipmap-${d}`, f));
+      }
+    }
+    console.log("✓ íconos Android");
+  } else {
+    console.error("✗ Faltan los íconos de Android; ejecuta \"pnpm icons\" en client/scripts");
+    failures++;
+  }
+
   // Íconos (generados con client/scripts: pnpm icons)
   const gen = resolve(here, "assets/generated");
   const icons = {
@@ -124,39 +150,44 @@ function brandSources() {
   }
 }
 
-// Jobs de flutter-build.yml que no se necesitan para Windows/macOS
-const SKIP_JOBS = [
+// Jobs de flutter-build.yml que nunca se compilan para Intelidesk
+const ALWAYS_SKIP = [
   "build-for-windows-sciter",
   "build-rustdesk-ios",
   "publish-signed-update-metadata",
-  "build-rustdesk-android",
-  "build-rustdesk-android-universal",
   "build-rustdesk-linux-drm",
   "build-rustdesk-linux-sciter",
   "build-appimage",
   "build-flatpak",
   "build-rustdesk-web",
 ];
-
-// Con --only=windows también se omiten macOS, Linux y el SBOM
-const WINDOWS_ONLY_SKIP = ["build-for-macOS", "build-rustdesk-linux", "generate-sbom"];
+// Jobs de cada plataforma elegible con --targets
+const TARGET_JOBS = {
+  windows: ["build-for-windows-flutter"],
+  macos: ["build-for-macOS"],
+  linux: ["build-rustdesk-linux", "generate-sbom"],
+  android: ["build-rustdesk-android", "build-rustdesk-android-universal"],
+};
 
 function setupWorkflow() {
   const rel = ".github/workflows/flutter-build.yml";
   const file = resolve(root, rel);
   let text = readFileSync(file, "utf8");
-  const skipJobs = onlyWindows ? [...SKIP_JOBS, ...WINDOWS_ONLY_SKIP] : SKIP_JOBS;
-  if (onlyWindows) {
-    // Quita Windows ARM64 de la matriz: usa runners windows-11-arm, que no son gratuitos en repos privados
-    const arm = /\r?\n {10}- \{\r?\n {14}target: aarch64-pc-windows-msvc,[\s\S]*?\r?\n {12}\}/;
-    if (arm.test(text)) text = text.replace(arm, "");
-    // Variante ARM64 del componente auxiliar RustDeskTempTopMostWindow
-    const armHelper = /\r?\n {10}- \{\r?\n {14}target: windows-11-arm,[\s\S]*?\r?\n {12}\}/;
-    if (armHelper.test(text)) text = text.replace(armHelper, "");
-    if (/^\s+target: (aarch64-pc-windows-msvc|windows-11-arm),/m.test(text)) {
-      console.error("✗ No se pudo quitar Windows ARM64 de la matriz");
-      failures++;
-    }
+  const unknown = [...targets].filter((t) => !TARGET_JOBS[t]);
+  if (unknown.length) {
+    console.error(`✗ Plataformas desconocidas: ${unknown.join(", ")}`);
+    process.exit(1);
+  }
+  const skipJobs = [...ALWAYS_SKIP, ...Object.entries(TARGET_JOBS).flatMap(([t, jobs]) => (targets.has(t) ? [] : jobs))];
+  // Windows ARM64 (runners windows-11-arm) no se compila: tarda y casi nadie lo usa
+  const arm = /\r?\n {10}- \{\r?\n {14}target: aarch64-pc-windows-msvc,[\s\S]*?\r?\n {12}\}/;
+  if (arm.test(text)) text = text.replace(arm, "");
+  // Variante ARM64 del componente auxiliar RustDeskTempTopMostWindow
+  const armHelper = /\r?\n {10}- \{\r?\n {14}target: windows-11-arm,[\s\S]*?\r?\n {12}\}/;
+  if (armHelper.test(text)) text = text.replace(armHelper, "");
+  if (/^\s+target: (aarch64-pc-windows-msvc|windows-11-arm),/m.test(text)) {
+    console.error("✗ No se pudo quitar Windows ARM64 de la matriz");
+    failures++;
   }
   const lines = text.split("\n");
   const jobStart = (l) => /^  ([A-Za-z0-9_-]+):\s*$/.exec(l)?.[1];
@@ -199,7 +230,7 @@ function setupWorkflow() {
     }
   }
   writeFileSync(file, out.join("\n"));
-  console.log(`✓ ${rel}: paso de marca añadido en ${added} jobs, ${skipJobs.length} jobs desactivados${onlyWindows ? " (solo Windows x64)" : ""}`);
+  console.log(`✓ ${rel}: paso de marca añadido en ${added} jobs; plataformas: ${[...targets].join(", ")}; ${skipJobs.length} jobs desactivados`);
 }
 
 if (flag === "--setup-workflow") setupWorkflow();
