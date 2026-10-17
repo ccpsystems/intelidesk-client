@@ -1,4 +1,4 @@
-name: Intelidesk Build
+name: Intelidesk Build (Windows)
 
 # Compila el cliente Intelidesk (Windows, macOS, Linux) con la marca de intelidesk/brand.json
 # y publica los instaladores en el release indicado. Se lanza a mano: Actions → Intelidesk Build.
@@ -7,7 +7,7 @@ on:
     inputs:
       release-tag:
         description: "Release donde se suben los instaladores"
-        default: "intelidesk-1.5.0"
+        default: "intelidesk-1.5.0-windows"
         required: true
 
 permissions:

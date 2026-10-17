@@ -13,6 +13,8 @@ import { execFileSync } from "node:child_process";
 
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const [, , target, flag] = process.argv;
+// --only=windows: compila solo Windows x64 (más barato en repos privados de GitHub)
+const onlyWindows = process.argv.includes("--only=windows");
 if (!target) {
   console.error("Uso: node apply-branding.mjs <ruta-rustdesk> [--setup-workflow]");
   process.exit(1);
@@ -136,10 +138,27 @@ const SKIP_JOBS = [
   "build-rustdesk-web",
 ];
 
+// Con --only=windows también se omiten macOS, Linux y el SBOM
+const WINDOWS_ONLY_SKIP = ["build-for-macOS", "build-rustdesk-linux", "generate-sbom"];
+
 function setupWorkflow() {
   const rel = ".github/workflows/flutter-build.yml";
   const file = resolve(root, rel);
-  const lines = readFileSync(file, "utf8").split("\n");
+  let text = readFileSync(file, "utf8");
+  const skipJobs = onlyWindows ? [...SKIP_JOBS, ...WINDOWS_ONLY_SKIP] : SKIP_JOBS;
+  if (onlyWindows) {
+    // Quita Windows ARM64 de la matriz: usa runners windows-11-arm, que no son gratuitos en repos privados
+    const arm = /\r?\n {10}- \{\r?\n {14}target: aarch64-pc-windows-msvc,[\s\S]*?\r?\n {12}\}/;
+    if (arm.test(text)) text = text.replace(arm, "");
+    // Variante ARM64 del componente auxiliar RustDeskTempTopMostWindow
+    const armHelper = /\r?\n {10}- \{\r?\n {14}target: windows-11-arm,[\s\S]*?\r?\n {12}\}/;
+    if (armHelper.test(text)) text = text.replace(armHelper, "");
+    if (/^\s+target: (aarch64-pc-windows-msvc|windows-11-arm),/m.test(text)) {
+      console.error("✗ No se pudo quitar Windows ARM64 de la matriz");
+      failures++;
+    }
+  }
+  const lines = text.split("\n");
   const jobStart = (l) => /^  ([A-Za-z0-9_-]+):\s*$/.exec(l)?.[1];
 
   // Jobs omitidos que ya tienen condición propia ("    if:" a nivel de job)
@@ -157,7 +176,7 @@ function setupWorkflow() {
     const line = lines[i];
     const started = jobStart(line);
     if (started) job = started;
-    const skip = SKIP_JOBS.includes(job);
+    const skip = skipJobs.includes(job);
     if (skip && /^    if:/.test(line)) {
       out.push("    if: false");
       continue;
@@ -180,7 +199,7 @@ function setupWorkflow() {
     }
   }
   writeFileSync(file, out.join("\n"));
-  console.log(`✓ ${rel}: paso de marca añadido en ${added} jobs, ${SKIP_JOBS.length} jobs desactivados`);
+  console.log(`✓ ${rel}: paso de marca añadido en ${added} jobs, ${skipJobs.length} jobs desactivados${onlyWindows ? " (solo Windows x64)" : ""}`);
 }
 
 if (flag === "--setup-workflow") setupWorkflow();
