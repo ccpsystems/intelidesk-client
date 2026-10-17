@@ -81,6 +81,19 @@ function brandSources() {
     [/FileDescription = "[^"]*"/, `FileDescription = ${rsString(brand.description)}`],
     [/(\[package\.metadata\.bundle\]\r?\nname = )"RustDesk"/, `$1${rsString(brand.appName)}`],
   ]);
+  // macOS: el paquete pasa a llamarse <appName>.app (PRODUCT_NAME). En tiempo de ejecución RustDesk ya
+  // adapta los plist de launchd con correct_app_name(); aquí solo se corrigen las rutas fijas de compilación.
+  const appBundle = `${brand.appName}.app`;
+  for (const rel of [
+    "build.py",
+    "res/osx-dist.sh",
+    "flutter/macos/Runner.xcodeproj/project.pbxproj",
+    "flutter/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme",
+  ]) {
+    patch(rel, [[/RustDesk\.app/g, appBundle]]);
+  }
+  patch("build.py", [[/RustDesk Installer/g, `${brand.appName} Installer`]]);
+
   // Empaquetador autoextraíble del .exe de Windows (libs/portable): son los datos que muestra Propiedades
   patch("libs/portable/Cargo.toml", [
     [/LegalCopyright = "[^"]*"/, `LegalCopyright = ${rsString(brand.copyright)}`],
@@ -195,6 +208,8 @@ function setupWorkflow() {
     console.error("✗ No se pudo quitar Windows ARM64 de la matriz");
     failures++;
   }
+  // Pasos de macOS del workflow que buscan el paquete por su nombre fijo
+  if (targets.has("macos")) text = text.replace(/RustDesk\.app/g, `${brand.appName}.app`);
   const lines = text.split("\n");
   const jobStart = (l) => /^  ([A-Za-z0-9_-]+):\s*$/.exec(l)?.[1];
 
