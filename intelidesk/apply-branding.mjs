@@ -210,6 +210,51 @@ function setupWorkflow() {
   }
   // Pasos de macOS del workflow que buscan el paquete por su nombre fijo
   if (targets.has("macos")) text = text.replace(/RustDesk\.app/g, `${brand.appName}.app`);
+  // Android: además del APK universal, un .aab firmado con la llave de subida para Google Play.
+  // Se inserta al final del job build-rustdesk-android-universal (justo antes del siguiente job).
+  if (targets.has("android") && !text.includes("Build signed Intelidesk AAB")) {
+    const aabSteps = [
+      "      - name: Build signed Intelidesk AAB (Google Play)",
+      "        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'",
+      "        shell: bash",
+      "        env:",
+      "          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64",
+      "          KEY_B64: ${{ secrets.ANDROID_SIGNING_KEY }}",
+      "          KEY_ALIAS: ${{ secrets.ANDROID_ALIAS }}",
+      "          STORE_PW: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}",
+      "          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}",
+      "        run: |",
+      "          export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH",
+      "          pushd flutter",
+      "          flutter build appbundle --release --target-platform android-arm64,android-arm,android-x64",
+      "          popd",
+      "          AAB=flutter/build/app/outputs/bundle/release/app-release.aab",
+      "          # Gradle lo firma con la llave de depuración: se quita esa firma y se firma con la de subida",
+      "          zip -q -d \"$AAB\" 'META-INF/*' || true",
+      "          echo \"$KEY_B64\" | base64 -d > \"$RUNNER_TEMP/upload.jks\"",
+      "          jarsigner -keystore \"$RUNNER_TEMP/upload.jks\" -storepass \"$STORE_PW\" -keypass \"$KEY_PW\" -sigalg SHA256withRSA -digestalg SHA-256 \"$AAB\" \"$KEY_ALIAS\"",
+      "          rm -f \"$RUNNER_TEMP/upload.jks\"",
+      "          jarsigner -verify \"$AAB\" | tail -1",
+      "          mkdir -p signed-apk",
+      "          mv \"$AAB\" signed-apk/intelidesk-${{ env.VERSION }}.aab",
+      "",
+      "      - name: Publish Intelidesk AAB",
+      "        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'",
+      "        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1",
+      "        with:",
+      "          prerelease: true",
+      "          tag_name: ${{ env.TAG_NAME }}",
+      "          files: |",
+      "            signed-apk/intelidesk-${{ env.VERSION }}.aab",
+      "",
+    ].join("\n");
+    const nextJob = /\n  build-rustdesk-linux:\s*\r?\n/;
+    if (nextJob.test(text)) text = text.replace(nextJob, (m) => `\n${aabSteps}${m}`);
+    else {
+      console.error("✗ No se encontró dónde insertar la compilación .aab");
+      failures++;
+    }
+  }
   const lines = text.split("\n");
   const jobStart = (l) => /^  ([A-Za-z0-9_-]+):\s*$/.exec(l)?.[1];
 
