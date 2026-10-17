@@ -134,6 +134,18 @@ function brandSources() {
     failures++;
   }
 
+  // Color principal de la interfaz (el azul de RustDesk #0071FF -> color de la marca)
+  if (brand.accentColor) {
+    const hex = brand.accentColor.replace("#", "").toUpperCase();
+    patch("flutter/lib/common.dart", [
+      [/0071FF/gi, hex],
+      [/Color\(0xFF2C8CFF\)/g, `Color(0xFF${hex})`],
+      [/primary: Colors\.blue,/g, "primary: MyTheme.accent,"],
+    ]);
+    patch("flutter/lib/desktop/pages/server_page.dart", [[/0071ff/gi, hex.toLowerCase()]]);
+    patch("flutter/android/app/src/main/res/values/colors.xml", [[/#FF0071FF/gi, `#FF${hex}`]]);
+  }
+
   // Íconos (generados con client/scripts: pnpm icons)
   const gen = resolve(here, "assets/generated");
   const icons = {

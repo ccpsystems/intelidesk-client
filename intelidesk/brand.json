@@ -9,5 +9,6 @@
   "publicKey": "653t9P85sGBLg9udH8fW8UZxEm9BYohjT4k8y5o+3bw=",
   "apiServer": "https://intelidesk.inteliap.es",
   "rustdeskTag": "1.5.0",
-  "androidAppId": "com.intelidesk.client"
+  "androidAppId": "com.intelidesk.client",
+  "accentColor": "#06AD60"
 }
