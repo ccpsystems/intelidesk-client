@@ -116,6 +116,10 @@ function brandSources() {
   if (brand.androidAppId) {
     patch("flutter/android/app/build.gradle", [[/applicationId "com\.carriez\.flutter_hbb"/, `applicationId ${rsString(brand.androidAppId)}`]]);
   }
+  // Google Play (protección automática) exige minSdk 24 o superior
+  if (brand.androidMinSdk) {
+    patch("flutter/android/app/build.gradle", [[/minSdkVersion \d+/, `minSdkVersion ${Number(brand.androidMinSdk)}`]]);
+  }
   patch("flutter/android/app/src/main/AndroidManifest.xml", [
     [/android:label="RustDesk"/, `android:label=${rsString(brand.appName)}`],
     [/android:label="RustDesk Input"/, `android:label=${rsString(`${brand.appName} Input`)}`],
