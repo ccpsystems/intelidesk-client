@@ -126,6 +126,33 @@ function brandSources() {
     [/<string>com\.carriez\.rustdesk<\/string>/, `<string>${brand.bundleId}</string>`],
     [/(<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>)rustdesk(<\/string>)/, `$1${brand.appName.toLowerCase()}$2`],
   ]);
+  // Textos de permiso que Apple exige si el binario referencia esas APIs (si faltan: ITMS-90683, binario no válido)
+  patch("flutter/ios/Runner/Info.plist", [
+    [
+      /(<key>NSCameraUsageDescription<\/key>)/,
+      [
+        ["NSMicrophoneUsageDescription", `${brand.appName} usa el micrófono solo si lo activas, para hablar con la persona que estás ayudando.`],
+        ["NSLocalNetworkUsageDescription", `${brand.appName} busca en tu red local los equipos a los que te puedes conectar directamente.`],
+        ["NSAppleMusicUsageDescription", `${brand.appName} accede a tus archivos multimedia solo cuando eliges uno para enviarlo.`],
+      ]
+        .map(([k, v]) => `<key>${k}</key>\n  <string>${v}</string>\n  `)
+        .join("") + "$1",
+    ],
+  ]);
+  // Manifiesto de privacidad (PrivacyInfo.xcprivacy): Apple lo exige y rechaza el binario sin él (ITMS-91053)
+  copyFileSync(resolve(here, "assets/ios/PrivacyInfo.xcprivacy"), resolve(root, "flutter/ios/Runner/PrivacyInfo.xcprivacy"));
+  patch("flutter/ios/Runner.xcodeproj/project.pbxproj", [
+    [
+      /(\/\* Begin PBXBuildFile section \*\/\r?\n)/,
+      "$1\t\tA1D0C0DE00000000000000B1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE00000000000000F1 /* PrivacyInfo.xcprivacy */; };\n",
+    ],
+    [
+      /(\/\* Begin PBXFileReference section \*\/\r?\n)/,
+      "$1\t\tA1D0C0DE00000000000000F1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = \"<group>\"; };\n",
+    ],
+    [/(97C147021CF9000F007C117D \/\* Info\.plist \*\/,\r?\n)/, "$1\t\t\t\tA1D0C0DE00000000000000F1 /* PrivacyInfo.xcprivacy */,\n"],
+    [/(97C146FC1CF9000F007C117D \/\* Main\.storyboard in Resources \*\/,\r?\n)/, "$1\t\t\t\tA1D0C0DE00000000000000B1 /* PrivacyInfo.xcprivacy in Resources */,\n"],
+  ]);
   // Sin notificaciones push: la App ID no tiene esa capacidad y Apple avisa si el permiso sobra
   patch("flutter/ios/Runner/Runner.entitlements", [[/\s*<key>aps-environment<\/key>\s*<string>development<\/string>/, ""]]);
   const iosGen = resolve(here, "assets/generated/ios");
