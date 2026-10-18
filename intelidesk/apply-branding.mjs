@@ -117,6 +117,8 @@ function brandSources() {
   patch("flutter/ios/Runner.xcodeproj/project.pbxproj", [
     [/PRODUCT_BUNDLE_IDENTIFIER = com\.carriez\.flutterHbb;/g, `PRODUCT_BUNDLE_IDENTIFIER = ${brand.bundleId};`],
     [/DEVELOPMENT_TEAM = HZF9JMC8YN;/g, `DEVELOPMENT_TEAM = ${brand.appleTeamId};`],
+    // Solo iPhone: una app universal obliga a publicar capturas de iPad (en iPad corre en modo iPhone)
+    [/TARGETED_DEVICE_FAMILY = "1,2";/g, "TARGETED_DEVICE_FAMILY = 1;"],
   ]);
   patch("flutter/ios/Runner/Info.plist", [
     [/(<key>CFBundleDisplayName<\/key>\s*<string>)RustDesk(<\/string>)/, `$1${brand.appName}$2`],
