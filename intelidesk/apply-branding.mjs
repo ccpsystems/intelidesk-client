@@ -222,27 +222,64 @@ function setupWorkflow() {
   }
   // Pasos de macOS del workflow que buscan el paquete por su nombre fijo
   if (targets.has("macos")) text = text.replace(/RustDesk\.app/g, `${brand.appName}.app`);
-  // Notarización tolerante: las primeras notarizaciones de una cuenta pueden tardar más de 10 min y
-  // los runners de macOS pierden DNS a ratos. Se envía, se espera hasta 1 h con reintentos y se grapa.
+  // Notarización: los runners de macOS de GitHub no llegan de forma estable a la API de notarización
+  // de Apple (DNS, TLS, timeouts). El job de macOS solo firma y publica el .dmg; un job en Linux
+  // (notarize-macos) lo notariza con rcodesign, espera hasta 1 h con reintentos, lo grapa y lo reemplaza.
   if (targets.has("macos")) {
     const notarize =
-      /^(\s*)rcodesign notary-submit --api-key-path (\$\{\{ github\.workspace \}\}\/rustdesk\.json)\s+--staple (rustdesk-\$\{\{ env\.VERSION \}\}\.dmg)\s*$/m;
-    if (notarize.test(text)) {
-      text = text.replace(notarize, (_m, ind, key, dmg) =>
-        [
-          `SUB=""; for i in 1 2 3; do SUB=$(rcodesign notary-submit --api-key-path ${key} ${dmg} 2>&1 | tee /dev/stderr | sed -n 's/.*created submission ID: *//p' | tail -1); [ -n "$SUB" ] && break; sleep 30; done`,
-          `[ -n "$SUB" ] || { echo "No se pudo enviar a notarizar"; exit 1; }`,
-          `for i in 1 2 3 4 5 6; do rcodesign notary-wait --api-key-path ${key} --max-wait-seconds 3600 "$SUB" && OK=1 && break; echo "reintentando espera de notarización ($i)"; sleep 30; done`,
-          `[ "$OK" = 1 ] || { rcodesign notary-log --api-key-path ${key} "$SUB" || true; exit 1; }`,
-          `rcodesign notary-log --api-key-path ${key} "$SUB" | grep -q '"status": "Accepted"' || { rcodesign notary-log --api-key-path ${key} "$SUB"; exit 1; }`,
-          `for i in 1 2 3; do rcodesign staple ${dmg} && break; sleep 30; done`,
-        ]
-          .map((l) => ind + l)
-          .join("\n"),
-      );
-    } else if (!text.includes("rcodesign notary-wait")) {
+      /^(\s*)rcodesign notary-submit --api-key-path \$\{\{ github\.workspace \}\}\/rustdesk\.json\s+--staple rustdesk-\$\{\{ env\.VERSION \}\}\.dmg\s*$/m;
+    if (notarize.test(text)) text = text.replace(notarize, (_m, ind) => `${ind}# notarización: job notarize-macos (Linux)`);
+    else if (!text.includes("job notarize-macos")) {
       console.error("✗ No se encontró el paso de notarización de macOS");
       failures++;
+    }
+    const notarizeJob = [
+      "  notarize-macos:",
+      "    name: notarize macOS ${{ matrix.arch }}",
+      "    needs: [build-for-macOS]",
+      "    if: ${{ !cancelled() && inputs.upload-artifact }}",
+      "    runs-on: ubuntu-latest",
+      "    strategy:",
+      "      fail-fast: false",
+      "      matrix:",
+      "        arch: [x86_64, aarch64]",
+      "    steps:",
+      "      - name: Import notarize key",
+      "        uses: timheuer/base64-to-file@adaa40c0c581f276132199d4cf60afa07ce60eac # v1.2",
+      "        with:",
+      "          fileName: notarize.json",
+      "          fileDir: ${{ runner.temp }}",
+      "          encodedString: ${{ secrets.MACOS_NOTARIZE_JSON }}",
+      "",
+      "      - name: Notarize, staple and replace DMG",
+      "        shell: bash",
+      "        env:",
+      "          GH_TOKEN: ${{ github.token }}",
+      "        run: |",
+      "          set -u",
+      "          KEY=\"$RUNNER_TEMP/notarize.json\"",
+      "          DMG=\"rustdesk-${VERSION}-${{ matrix.arch }}.dmg\"",
+      "          curl -sSfL -o rc.tgz https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.22.0/apple-codesign-0.22.0-x86_64-unknown-linux-musl.tar.gz",
+      "          tar -xzf rc.tgz && RC=$(find . -name rcodesign -type f | head -1) && chmod +x \"$RC\"",
+      "          gh release download \"$TAG_NAME\" -R \"$GITHUB_REPOSITORY\" -p \"$DMG\" -D . --clobber",
+      "          SUB=\"\"",
+      "          for i in 1 2 3; do SUB=$(\"$RC\" notary-submit --api-key-path \"$KEY\" \"$DMG\" 2>&1 | tee /dev/stderr | sed -n 's/.*created submission ID: *//p' | tail -1); [ -n \"$SUB\" ] && break; sleep 30; done",
+      "          [ -n \"$SUB\" ] || { echo \"No se pudo enviar a notarizar\"; exit 1; }",
+      "          OK=0",
+      "          for i in 1 2 3 4 5 6; do \"$RC\" notary-wait --api-key-path \"$KEY\" --max-wait-seconds 3600 \"$SUB\" && OK=1 && break; echo \"reintentando espera ($i)\"; sleep 30; done",
+      "          \"$RC\" notary-log --api-key-path \"$KEY\" \"$SUB\" | tee notary-log.json || true",
+      "          [ \"$OK\" = 1 ] && grep -q '\"status\": \"Accepted\"' notary-log.json || { echo \"Apple no aceptó la notarización\"; exit 1; }",
+      "          for i in 1 2 3; do \"$RC\" staple \"$DMG\" && break; sleep 30; done",
+      "          gh release upload \"$TAG_NAME\" -R \"$GITHUB_REPOSITORY\" \"$DMG\" --clobber",
+      "",
+    ].join("\n");
+    const beforeJob = /\n  publish_unsigned:\s*\r?\n/;
+    if (!text.includes("  notarize-macos:")) {
+      if (beforeJob.test(text)) text = text.replace(beforeJob, (m) => `\n${notarizeJob}${m}`);
+      else {
+        console.error("✗ No se encontró dónde insertar el job notarize-macos");
+        failures++;
+      }
     }
   }
   // Android: además del APK universal, un .aab firmado con la llave de subida para Google Play.
