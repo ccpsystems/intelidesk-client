@@ -116,6 +116,10 @@ function brandSources() {
   if (brand.androidAppId) {
     patch("flutter/android/app/build.gradle", [[/applicationId "com\.carriez\.flutter_hbb"/, `applicationId ${rsString(brand.androidAppId)}`]]);
   }
+  // Símbolos de depuración del código nativo dentro del .aab (Play los usa para los informes de fallos)
+  patch("flutter/android/app/build.gradle", [
+    [/(buildTypes \{\r?\n(\s*)release \{\r?\n)/, "$1$2    ndk { debugSymbolLevel 'SYMBOL_TABLE' }\n"],
+  ]);
   // Google Play (protección automática) exige minSdk 24 o superior
   if (brand.androidMinSdk) {
     patch("flutter/android/app/build.gradle", [[/minSdkVersion \d+/, `minSdkVersion ${Number(brand.androidMinSdk)}`]]);
