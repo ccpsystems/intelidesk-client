@@ -11,5 +11,6 @@
   "rustdeskTag": "1.5.0",
   "androidAppId": "com.intelidesk.client",
   "accentColor": "#06AD60",
-  "androidMinSdk": 24
+  "androidMinSdk": 24,
+  "appleTeamId": "8JUX598CSQ"
 }

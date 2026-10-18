@@ -7,7 +7,7 @@
 //
 // La configuración se lee de brand.json (junto a este script) y puede sobrescribirse con variables
 // de entorno: INTELIDESK_RENDEZVOUS_SERVER, INTELIDESK_PUBLIC_KEY, INTELIDESK_API_SERVER.
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -111,6 +111,29 @@ function brandSources() {
     [/PRODUCT_BUNDLE_IDENTIFIER = .*/, `PRODUCT_BUNDLE_IDENTIFIER = ${brand.bundleId}`],
     [/PRODUCT_COPYRIGHT = .*/, `PRODUCT_COPYRIGHT = ${brand.copyright}`],
   ]);
+
+  // iOS (app del técnico): identificador, equipo de Apple, nombre visible, esquema de URL e íconos.
+  // La firma (manual, App Store) la configura el workflow intelidesk-ios.yml.
+  patch("flutter/ios/Runner.xcodeproj/project.pbxproj", [
+    [/PRODUCT_BUNDLE_IDENTIFIER = com\.carriez\.flutterHbb;/g, `PRODUCT_BUNDLE_IDENTIFIER = ${brand.bundleId};`],
+    [/DEVELOPMENT_TEAM = HZF9JMC8YN;/g, `DEVELOPMENT_TEAM = ${brand.appleTeamId};`],
+  ]);
+  patch("flutter/ios/Runner/Info.plist", [
+    [/(<key>CFBundleDisplayName<\/key>\s*<string>)RustDesk(<\/string>)/, `$1${brand.appName}$2`],
+    [/(<key>CFBundleName<\/key>\s*<string>)RustDesk(<\/string>)/, `$1${brand.appName}$2`],
+    [/<string>com\.carriez\.rustdesk<\/string>/, `<string>${brand.bundleId}</string>`],
+    [/(<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>)rustdesk(<\/string>)/, `$1${brand.appName.toLowerCase()}$2`],
+  ]);
+  // Sin notificaciones push: la App ID no tiene esa capacidad y Apple avisa si el permiso sobra
+  patch("flutter/ios/Runner/Runner.entitlements", [[/\s*<key>aps-environment<\/key>\s*<string>development<\/string>/, ""]]);
+  const iosGen = resolve(here, "assets/generated/ios");
+  if (existsSync(iosGen)) {
+    for (const f of readdirSync(iosGen)) copyFileSync(resolve(iosGen, f), resolve(root, "flutter/ios/Runner/Assets.xcassets/AppIcon.appiconset", f));
+    console.log("✓ íconos iOS");
+  } else {
+    console.error("✗ Faltan los íconos de iOS; ejecuta \"pnpm icons\" en client/scripts");
+    failures++;
+  }
 
   // Android: identificador de la app (el namespace de Kotlin no cambia), nombre visible e íconos
   if (brand.androidAppId) {
