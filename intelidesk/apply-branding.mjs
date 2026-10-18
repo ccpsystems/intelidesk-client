@@ -135,6 +135,27 @@ function brandSources() {
     failures++;
   }
 
+  // Enlaces de "Acerca de", privacidad y descargas: a la web de Intelidesk en lugar de rustdesk.com
+  // (Apple y Google revisan que la app no lleve a otra marca). Los enlaces a la documentación técnica se mantienen.
+  const site = brand.website.replace(/\/$/, "");
+  const links = [
+    [/https:\/\/rustdesk\.com\/privacy\.html/g, `${site}/privacidad`],
+    [/https:\/\/rustdesk\.com\/download/g, `${site}/descargar`],
+    [/https:\/\/rustdesk\.com\/pricing/g, site],
+    [/(['"])https:\/\/rustdesk\.com\/?\1/g, `$1${site}$1`],
+  ];
+  const linkFiles = {
+    "flutter/lib/common.dart": [3],
+    "flutter/lib/mobile/pages/settings_page.dart": [0, 3],
+    "flutter/lib/mobile/pages/connection_page.dart": [1],
+    "flutter/lib/desktop/pages/connection_page.dart": [2],
+    "flutter/lib/desktop/pages/desktop_home_page.dart": [1],
+    "flutter/lib/desktop/pages/desktop_setting_page.dart": [0, 3],
+    "flutter/lib/desktop/pages/install_page.dart": [0],
+  };
+  for (const [file, idx] of Object.entries(linkFiles)) patch(file, idx.map((i) => links[i]));
+  patch("flutter/lib/mobile/pages/settings_page.dart", [[/Text\('rustdesk\.com'/g, `Text(${rsString(new URL(site).host)}`]]);
+
   // Android: identificador de la app (el namespace de Kotlin no cambia), nombre visible e íconos
   if (brand.androidAppId) {
     patch("flutter/android/app/build.gradle", [[/applicationId "com\.carriez\.flutter_hbb"/, `applicationId ${rsString(brand.androidAppId)}`]]);

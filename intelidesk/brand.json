@@ -12,5 +12,6 @@
   "androidAppId": "com.intelidesk.client",
   "accentColor": "#06AD60",
   "androidMinSdk": 24,
-  "appleTeamId": "8JUX598CSQ"
+  "appleTeamId": "8JUX598CSQ",
+  "website": "https://intelidesk.inteliap.es"
 }
