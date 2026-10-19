@@ -208,6 +208,24 @@ function brandSources() {
   for (const [file, idx] of Object.entries(linkFiles)) patch(file, idx.map((i) => links[i]));
   patch("flutter/lib/mobile/pages/settings_page.dart", [[/Text\('rustdesk\.com'/g, `Text(${rsString(new URL(site).host)}`]]);
 
+  // Windows: el binario se compila como rustdesk.exe, pero el acceso directo, el servicio y el desinstalador apuntan a
+  // <app>.exe. Con la marca RustDesk coincide (Windows no distingue mayúsculas); con Intelidesk no, así que al instalar
+  // (copy_exe_cmd) y al actualizar (rename_exe_cmd) se renombra rustdesk.exe a Intelidesk.exe.
+  patch("src/platform/windows.rs", [
+    [
+      /(\{main_exe\}\r?\n)(\s*)(copy \/Y \\"\{ORIGIN_PROCESS_EXE\}\\")/,
+      `$1$2if exist \\"{path}\\\\rustdesk.exe\\" move /Y \\"{path}\\\\rustdesk.exe\\" \\"{exe}\\"\n$2$3`,
+    ],
+    [
+      /(if src_exe_filename == format!\("\{app_name\}\.exe"\) \{\r?\n\s*)Ok\(""\.to_owned\(\)\)/,
+      `$1Ok(format!(
+            "
+        if exist \\"{path}\\\\rustdesk.exe\\" move /Y \\"{path}\\\\rustdesk.exe\\" \\"{path}\\\\{app_name}.exe\\"
+        ",
+        ))`,
+    ],
+  ]);
+
   // Android: identificador de la app (el namespace de Kotlin no cambia), nombre visible e íconos
   if (brand.androidAppId) {
     patch("flutter/android/app/build.gradle", [[/applicationId "com\.carriez\.flutter_hbb"/, `applicationId ${rsString(brand.androidAppId)}`]]);
