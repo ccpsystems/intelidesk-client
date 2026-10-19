@@ -13,5 +13,15 @@
   "accentColor": "#06AD60",
   "androidMinSdk": 24,
   "appleTeamId": "8JUX598CSQ",
-  "website": "https://intelidesk.inteliap.es"
+  "website": "https://intelidesk.inteliap.es",
+  "iosMinVersion": "15.0",
+  "iosSdksWithoutPrivacyManifest": [
+    "DKImagePickerController",
+    "DKPhotoGallery",
+    "SwiftyGif",
+    "device_info_plus",
+    "file_picker",
+    "package_info_plus",
+    "sqflite"
+  ]
 }

@@ -7,7 +7,7 @@
 //
 // La configuración se lee de brand.json (junto a este script) y puede sobrescribirse con variables
 // de entorno: INTELIDESK_RENDEZVOUS_SERVER, INTELIDESK_PUBLIC_KEY, INTELIDESK_API_SERVER.
-import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -125,6 +125,29 @@ function brandSources() {
     [/(<key>CFBundleName<\/key>\s*<string>)RustDesk(<\/string>)/, `$1${brand.appName}$2`],
     [/<string>com\.carriez\.rustdesk<\/string>/, `<string>${brand.bundleId}</string>`],
     [/(<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>)rustdesk(<\/string>)/, `$1${brand.appName.toLowerCase()}$2`],
+  ]);
+  // iOS mínimo: App Store Connect exige iOS 15 o superior desde abril de 2027 (ITMS-90068)
+  const iosMin = brand.iosMinVersion ?? "15.0";
+  patch("flutter/ios/Runner.xcodeproj/project.pbxproj", [[/IPHONEOS_DEPLOYMENT_TARGET = 13\.0;/g, `IPHONEOS_DEPLOYMENT_TARGET = ${iosMin};`]]);
+  patch("flutter/ios/Podfile", [
+    [/platform :ios, '13\.0'/, `platform :ios, '${iosMin}'`],
+    [/\['IPHONEOS_DEPLOYMENT_TARGET'\] = '11\.0'/, `['IPHONEOS_DEPLOYMENT_TARGET'] = '${iosMin}'`],
+  ]);
+  patch("flutter/ios/Flutter/AppFrameworkInfo.plist", [[/(<key>MinimumOSVersion<\/key>\s*<string>)13\.0(<\/string>)/, `$1${iosMin}$2`]]);
+  // Librerías de terceros sin manifiesto de privacidad (versiones fijadas por RustDesk): se les añade uno
+  // como recurso desde el post_install de CocoaPods para que quede dentro de cada .framework (ITMS-91061)
+  mkdirSync(resolve(root, "flutter/ios/SdkPrivacy"), { recursive: true });
+  copyFileSync(resolve(here, "assets/ios/sdk/PrivacyInfo.xcprivacy"), resolve(root, "flutter/ios/SdkPrivacy/PrivacyInfo.xcprivacy"));
+  patch("flutter/ios/Podfile", [
+    [
+      /(post_install do \|installer\|\r?\n)/,
+      `$1  sdk_privacy = installer.pods_project.new_file(File.join(__dir__, 'SdkPrivacy', 'PrivacyInfo.xcprivacy'))
+  installer.pods_project.targets.each do |target|
+    next unless ${JSON.stringify(brand.iosSdksWithoutPrivacyManifest ?? [])}.include?(target.name)
+    target.resources_build_phase.add_file_reference(sdk_privacy, true)
+  end
+`,
+    ],
   ]);
   // Textos de permiso que Apple exige si el binario referencia esas APIs (si faltan: ITMS-90683, binario no válido)
   patch("flutter/ios/Runner/Info.plist", [

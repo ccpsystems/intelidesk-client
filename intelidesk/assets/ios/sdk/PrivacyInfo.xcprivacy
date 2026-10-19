@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Manifiesto para las librerías de terceros que RustDesk trae en versiones anteriores a 2024
+     (file_picker, sqflite, device_info_plus, package_info_plus, DKImagePickerController, DKPhotoGallery,
+     SwiftyGif). Apple rechaza la app si alguna no lo incluye (ITMS-91061). Ninguna rastrea ni recopila
+     datos; se declaran las APIs de archivos que usan para leer fechas de archivos elegidos por el usuario. -->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array><string>C617.1</string><string>3B52.1</string></array>
+		</dict>
+	</array>
+</dict>
+</plist>
