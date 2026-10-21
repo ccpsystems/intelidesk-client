@@ -277,7 +277,9 @@ function brandSources() {
     "64x64.png": ["res/64x64.png"],
     "32x32.png": ["res/32x32.png"],
     "mac-icon.png": ["res/mac-icon.png"],
-    "icon.ico": ["res/icon.ico", "flutter/windows/runner/resources/app_icon.ico"],
+    // tray-icon.ico: ícono junto al reloj de Windows; mac-tray: barra de menús de macOS
+    "icon.ico": ["res/icon.ico", "flutter/windows/runner/resources/app_icon.ico", "res/tray-icon.ico"],
+    "mac-tray.png": ["res/mac-tray-dark-x2.png", "res/mac-tray-light-x2.png"],
   };
   for (const [src, dests] of Object.entries(icons)) {
     if (!existsSync(resolve(gen, src))) {
