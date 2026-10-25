@@ -1,0 +1,73 @@
+name: Intelidesk Release
+
+# Publica una versión formal de Intelidesk a partir de los instaladores de un build ya probado:
+# los copia del release de trabajo (p. ej. intelidesk-1.5.0) con nombres limpios a un release nuevo (p. ej. v1.5.0).
+# Se lanza a mano: Actions → Intelidesk Release.
+on:
+  workflow_dispatch:
+    inputs:
+      source-tag:
+        description: "Release de trabajo con los instaladores probados"
+        default: "intelidesk-1.5.0"
+        required: true
+      version:
+        description: "Versión a publicar (sin 'v')"
+        default: "1.5.0"
+        required: true
+      commit:
+        description: "Commit del build probado"
+        required: true
+      exe-sha256:
+        description: "SHA-256 esperado del .exe de Windows (para confirmar que es el build probado)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SRC: ${{ inputs.source-tag }}
+      VER: ${{ inputs.version }}
+    steps:
+      - name: Download and rename installers
+        run: |
+          set -euo pipefail
+          mkdir out && cd out
+          get() { gh release download "$SRC" -R "$GITHUB_REPOSITORY" -p "$1" -O "$2"; }
+          get "rustdesk-*-x86_64.exe"  "Intelidesk-$VER-Windows.exe"
+          get "rustdesk-*-x86_64.msi"  "Intelidesk-$VER-Windows.msi"
+          get "rustdesk-*-aarch64.dmg" "Intelidesk-$VER-Mac-Apple-Silicon.dmg"
+          get "rustdesk-*-x86_64.dmg"  "Intelidesk-$VER-Mac-Intel.dmg"
+          if [ -n "${{ inputs.exe-sha256 }}" ]; then
+            echo "${{ inputs.exe-sha256 }}  Intelidesk-$VER-Windows.exe" | sha256sum -c -
+          fi
+          sha256sum Intelidesk-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create release
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          Primera versión formal de Intelidesk, soporte remoto de Inteliap S.R.L.
+
+          **Descarga recomendada:** https://intelidesk.inteliap.es/descargar
+
+          | Archivo | Para |
+          | --- | --- |
+          | Intelidesk-$VER-Windows.exe | Windows 10/11 (64 bits). Se usa sin instalar o con el botón Instalar. |
+          | Intelidesk-$VER-Windows.msi | Despliegue en varios equipos (GPO, Intune). |
+          | Intelidesk-$VER-Mac-Apple-Silicon.dmg | Mac con chip Apple M1 o posterior. Firmado y notarizado por Apple. |
+          | Intelidesk-$VER-Mac-Intel.dmg | Mac con procesador Intel. Firmado y notarizado por Apple. |
+
+          Android: Google Play (com.intelidesk.client). iPhone (app del técnico): App Store.
+
+          Los instaladores ya traen el servidor de Intelidesk configurado. SHA256SUMS.txt permite verificar los archivos.
+
+          Basado en RustDesk (AGPL-3.0). Código fuente: rama \`intelidesk\` de este repositorio.
+          EOF
+          gh release create "v$VER" out/* -R "$GITHUB_REPOSITORY" \
+            --target "${{ inputs.commit }}" --title "Intelidesk $VER" --notes-file notes.md --latest
+          gh release view "v$VER" -R "$GITHUB_REPOSITORY"
